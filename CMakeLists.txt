@@ -120,7 +120,7 @@ endif( NOT DPLASMA_ASPRINTF_NEED__GNU_SOURCE )
 check_include_files(complex.h DPLASMA_HAVE_COMPLEX_H)
 
 if(NOT DPLASMA_PRECISIONS)
-  set(DPLASMA_PRECISIONS "s;d;c;z" CACHE STRING "The precisions to compile in dplasma (accepts a colon separated list of s;d;c;z)" FORCE)
+  set(DPLASMA_PRECISIONS "s;d" CACHE STRING "The precisions to compile in dplasma (accepts a colon separated list of s;d;c;z)" FORCE)
 else()
   set(DPLASMA_PRECISIONS "${DPLASMA_PRECISIONS}" CACHE STRING "The precisions to compile in dplasma (accepts a colon separated list of s;d;c;z)" FORCE)
 endif()

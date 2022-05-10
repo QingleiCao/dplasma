@@ -31,6 +31,10 @@
 #include "common_timing.h"
 #include "flops.h"
 
+#if defined(ON_FUGAKU)
+#define main MAIN__
+#endif
+
 /* these are globals in common.c */
 extern char *PARSEC_SCHED_NAME[];
 extern int unix_timestamp;

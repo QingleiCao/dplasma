@@ -273,7 +273,7 @@ static void read_arguments(int *_argc, char*** _argv, int* iparam)
     /* Default seed */
     iparam[IPARAM_RANDOM_SEED] = 3872;
     iparam[IPARAM_MATRIX_INIT] = dplasmaMatrixRandom;
-    iparam[IPARAM_NRUNS] = 1;
+    iparam[IPARAM_NRUNS] = 3;
 
     do {
 #if defined(PARSEC_HAVE_GETOPT_LONG)

@@ -65,7 +65,7 @@ loc_A = %{ return LOC(descA, (descB->nt-1)-n, k); %}
   /* Locality */
   : descA((descB->nt-1)-n, k)
 
-  READ  A    <- ddescA((descB->nt-1)-n, k)                               [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
+  READ  A    <- descA((descB->nt-1)-n, k)                               [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
                                                                            type_data   = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, LAPACK); %} ]
              -> (k == (descB->nt-1-n)) ? A ztrmm(n, 0..(descB->mt-1))    /* dep OUT: rely on datacopy dtt for sending */
              -> (k != (descB->nt-1-n)) ? B zgemm(n, 0..(descB->mt-1), k) /* dep OUT: rely on datacopy dtt for sending */

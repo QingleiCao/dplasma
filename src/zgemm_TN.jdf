@@ -98,7 +98,7 @@ loc_A = %{ return LOC(descA, k, m); %}
 
 : descA(k, m)
 
-READ A <- ddescA(k, m)                   [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
+READ A <- descA(k, m)                   [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
                                            type_data   = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, LAPACK); %} ]
        -> A GEMM(m, 0 .. descC->nt-1, k) /* dep OUT: rely on datacopy dtt for sending */
 
@@ -122,7 +122,7 @@ loc_B = %{ return LOC(descB, k, n); %}
 
 : descB(k, n)
 
-READ B <- ddescB(k, n)                   [ type        = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, TILED); %}
+READ B <- descB(k, n)                   [ type        = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, TILED); %}
                                            type_data   = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, LAPACK); %} ]
        -> B GEMM(0 .. descC->mt-1, n, k) /* dep OUT: rely on datacopy dtt for sending */
 
@@ -154,10 +154,10 @@ loc_C = %{ return LOC(descC, m, n); %}
 // Parameters
 READ A <- A READ_A(k, m)                              [ type_remote = %{ return ADTT_DC(ddescA, loc_A, A_SHAPE, TILED); %} ]
 READ B <- B READ_B(k, n)                              [ type_remote = %{ return ADTT_DC(ddescB, loc_B, B_SHAPE, TILED); %} ]
-RW   C <- (k == 0)             ? ddescC(m, n)         [ type        = %{ return ADTT_READ(ddescC, loc_C, C_SHAPE, TILED); %}
+RW   C <- (k == 0)             ? descC(m, n)         [ type        = %{ return ADTT_READ(ddescC, loc_C, C_SHAPE, TILED); %}
                                                         type_data   = %{ return ADTT_READ(ddescC, loc_C, C_SHAPE, LAPACK); %} ]
        <- (k != 0)             ? C GEMM( m, n, k-1 )  [ type_remote = %{ return ADTT_DC(ddescC, loc_C, C_SHAPE, TILED); %} ]
-       -> (k == (descA->mt-1)) ? ddescC(m, n)         [ type        = %{ return ADTT_CP(_f_C, ddescC, loc_C, C_SHAPE); %}
+       -> (k == (descA->mt-1)) ? descC(m, n)         [ type        = %{ return ADTT_CP(_f_C, ddescC, loc_C, C_SHAPE); %}
                                                         type_data   = %{ return ADTT_DC(ddescC, loc_C, C_SHAPE, LAPACK); %} ]
        -> (k != (descA->mt-1)) ? C GEMM( m, n, k+1 )  /* dep OUT: rely on datacopy dtt for sending */
 

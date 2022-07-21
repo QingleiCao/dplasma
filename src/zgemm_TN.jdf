@@ -98,7 +98,7 @@ loc_A = %{ return LOC(descA, k, m); %}
 
 : descA(k, m)
 
-READ A <- descA(k, m)                   [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
+READ A <- ddescA(k, m)                   [ type        = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, TILED); %}
                                            type_data   = %{ return ADTT_READ(ddescA, loc_A, A_SHAPE, LAPACK); %} ]
        -> A GEMM(m, 0 .. descC->nt-1, k) /* dep OUT: rely on datacopy dtt for sending */
 
@@ -122,7 +122,7 @@ loc_B = %{ return LOC(descB, k, n); %}
 
 : descB(k, n)
 
-READ B <- descB(k, n)                   [ type        = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, TILED); %}
+READ B <- ddescB(k, n)                   [ type        = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, TILED); %}
                                            type_data   = %{ return ADTT_READ(ddescB, loc_B, B_SHAPE, LAPACK); %} ]
        -> B GEMM(0 .. descC->mt-1, n, k) /* dep OUT: rely on datacopy dtt for sending */
 

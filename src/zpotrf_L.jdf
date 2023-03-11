@@ -26,6 +26,8 @@ extern "C" %{
 /* Define the different shapes this JDF is using */
 #define DEFAULT 0
 
+#define DEBUG_INFO 0
+
 /* Assume the functions on type & type_remote will return parsec_arena_datatype_t */
 #define JDF2C_TYPE_ADT_NOT_INDEX
 
@@ -139,6 +141,10 @@ BODY [type=CUDA
       dyld=cusolverDnZpotrf dyldtype=cublas_zpotrf_v2_t
       weigth=k]
 {
+#if DEBUG_INFO
+    printf("%d %d PO\n", k, k);
+#endif
+
     int tempkm = k == descA->mt-1 ? descA->m - k*descA->mb : descA->mb;
     int ldak = LDA(ddescA, T);
 
@@ -211,12 +217,19 @@ RW    C <- (k == 0) ? ddescA(m, k)               [ type        = %{ return ADTT_
         -> ddescA(m, k)                          [ type        = %{ return ADTT_CP(_f_C, ddescA, loc_C, DEFAULT); %}
                                                    type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
 
+CTL ctl -> ctl potrf_zgemm(m, k+1, 0)
+CTL ctl1 -> ctl1 potrf_zherk(0, m)
+
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * ((2 * descA->mt) - k - m - 1) * (m - k) : PRI_MAX
 
 BODY [type=CUDA
       dyld=cublasZtrsm_v2 dyldtype=cublas_ztrsm_v2_t
       weight=(m+k)]
 {
+#if DEBUG_INFO
+    printf("%d %d TRSM\n", m, k);
+#endif
+
     int tempmm = m == descA->mt-1 ? descA->m - m * descA->mb : descA->mb;
     int ldak = LDA(ddescA, T);
     int ldam = LDA(ddescA, C);
@@ -320,12 +333,18 @@ RW    T <- (k == 0)   ? ddescA(m, m)          [ type        = %{ return ADTT_REA
         <- (k != 0)   ? T potrf_zherk(k-1, m) [ type_remote = %{ return ADTT_DC(ddescA, loc_T, DEFAULT, TILED); %} ]
         -> (m == k+1) ? T potrf_zpotrf(m)  : T potrf_zherk(k+1, m) /* dep OUT: rely on datacopy dtt for sending */
 
+CTL ctl1 <- (k == 0)? ctl1 potrf_ztrsm(m, m-1)
+
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * (m - k) : PRI_MAX
 
 BODY [type=CUDA
       dyld=cublasZherk_v2 dyldtype=cublas_zherk_v2_t
       weight=(m+k)]
 {
+#if DEBUG_INFO
+    printf("%d %d SYRK\n", m, k);
+#endif
+
     int tempmm = m == descA->mt-1 ? descA->m - m*descA->mb : descA->mb;
     int ldam_A = LDA(ddescA, A);
     int ldam_T = LDA(ddescA, T);
@@ -424,6 +443,8 @@ RW    C <- (k == 0)   ? ddescA(m, n)             [ type        = %{ return ADTT_
         <- (k != 0)   ? C potrf_zgemm(m, n, k-1) [ type_remote = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, TILED); %} ]
         -> (n == k+1) ? C potrf_ztrsm(m, n) : C potrf_zgemm(m, n, k+1) /* dep OUT: rely on datacopy dtt for sending */
 
+CTL ctl <- (k == 0)? ctl potrf_ztrsm(m, n-1)
+
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * ((2 * descA->mt) - m - n - 3) * (m - n) + 6 * (m - k) : PRI_MAX
 
 BODY [type=CUDA
@@ -436,6 +457,10 @@ BODY [type=CUDA
       stage_in=stage_in_lapack
       stage_out=stage_out_lapack]
 {
+#if DEBUG_INFO
+    printf("%d %d %d GEMM\n", m, n, k);
+#endif
+
 #if defined(PRECISION_z) || defined(PRECISION_c)
     cuDoubleComplex zone  = make_cuDoubleComplex( 1., 0.);
     cuDoubleComplex mzone = make_cuDoubleComplex(-1., 0.);

@@ -16,7 +16,8 @@ int main(int argc, char ** argv)
 {
     parsec_context_t* parsec;
     int iparam[IPARAM_SIZEOF];
-    dplasma_enum_t uplo = dplasmaUpper;
+    dplasma_enum_t uplo = dplasmaLower;
+    //dplasma_enum_t uplo = dplasmaUpper;
     int info = 0;
     int ret = 0;
 

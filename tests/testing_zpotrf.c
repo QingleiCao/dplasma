@@ -54,7 +54,7 @@ int main(int argc, char ** argv)
         {
 
             SYNC_TIME_START();
-            parsec_taskpool_t* PARSEC_zpotrf = dplasma_zpotrf_New( uplo, (parsec_tiled_matrix_t*)&dcA, &info );
+            parsec_taskpool_t* PARSEC_zpotrf = dplasma_zpotrf_New( uplo, (parsec_tiled_matrix_t*)&dcA, &info, lookahead );
             /* Set the recursive size */
             dplasma_zpotrf_setrecursive( PARSEC_zpotrf, iparam[IPARAM_HMB] );
             parsec_context_add_taskpool(parsec, PARSEC_zpotrf);
@@ -69,8 +69,19 @@ int main(int argc, char ** argv)
         else
         {
             PASTE_CODE_ENQUEUE_PROGRESS_DESTRUCT_KERNEL(parsec, zpotrf, 
-                                      ( uplo, (parsec_tiled_matrix_t*)&dcA, &info),
+                                      ( uplo, (parsec_tiled_matrix_t*)&dcA, &info, lookahead),
                                       dplasma_zpotrf_Destruct( PARSEC_zpotrf ));
+
+            if(rank==0){
+                printf("[****] TIME(s) %12.5f : \tPxQxg= %3d %-3d %d NB= %4d N= %7d : %14f gflops"
+                        " - ENQ&PROG&DEST %12.5f : %14f gflops"
+                        " - ENQ %12.5f - DEST %12.5f -lookahead %d\n",
+                        stime_B, P, Q, gpus, NB, N,
+                        gflops=(flops/1e9)/stime_B,
+                        (stime_A+stime_B+stime_C),
+                        (flops/1e9)/(stime_A+stime_B+stime_C),
+                        stime_A, stime_C, lookahead);
+            }
         }
         parsec_devices_reset_load(parsec);
 

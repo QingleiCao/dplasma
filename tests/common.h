@@ -73,6 +73,7 @@ enum iparam_t {
   IPARAM_BUT_LEVEL,    /* Butterfly level */
   IPARAM_SCHEDULER,    /* User-selected scheduler */
   IPARAM_NRUNS,        /* Number of times to run the kernel */
+  IPARAM_LOOKAHEAD,    /* Lookahead in left-looking Cholesky */ 
   IPARAM_SIZEOF
 };
 
@@ -126,6 +127,7 @@ void iparam_default_ibnbmb(int* iparam, int ib, int nb, int mb);
     int matrix_init = iparam[IPARAM_MATRIX_INIT];                       \
     int butterfly_level = iparam[IPARAM_BUT_LEVEL];                     \
     int async = iparam[IPARAM_ASYNC];                                   \
+    int lookahead = iparam[IPARAM_LOOKAHEAD];                           \
     (void)rank;(void)nodes;(void)cores;(void)gpus;(void)P;(void)Q;(void)M;(void)N;(void)K;(void)NRHS; \
     (void)LDA;(void)LDB;(void)LDC;(void)IB;(void)MB;(void)NB;(void)MT;(void)NT;(void)KT; \
     (void)KP;(void)KQ;(void)IP;(void)JQ;(void)HMB;(void)HNB;(void)check;(void)loud;(void)async; \
@@ -265,7 +267,7 @@ static inline int min(int a, int b) { return a < b ? a : b; }
     DESTRUCT;                                                           \
     SYNC_TIME_STOP();                                                   \
     double stime_C = sync_time_elapsed;                                 \
-    if(rank==0){                                                        \
+    if(0 && rank==0){                                                        \
         printf("[****] TIME(s) %12.5f : " #KERNEL "\tPxQxg= %3d %-3d %d NB= %4d N= %7d : %14f gflops"\
                   " - ENQ&PROG&DEST %12.5f : %14f gflops"               \
                   " - ENQ %12.5f - DEST %12.5f\n",                      \

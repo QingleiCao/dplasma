@@ -264,7 +264,7 @@ dplasma_zpoinv_sync( parsec_context_t *parsec,
         return -1;
     }
 
-    info = dplasma_zpotrf( parsec, uplo, A );
+    info = dplasma_zpotrf( parsec, uplo, A, 1 );
     info = dplasma_ztrtri( parsec, uplo, dplasmaNonUnit, A );
     dplasma_zlauum( parsec, uplo, A );
 

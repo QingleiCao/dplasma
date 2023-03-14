@@ -165,7 +165,7 @@ void print_usage(void)
             parsec_usage();
 }
 
-#define GETOPT_STRING "bc:mo:g::p:P:q:Q:N:M:K:A:B:C:i:t:T:s:S:xXv::hd:ry:V:a:R:G:"
+#define GETOPT_STRING "bc:mo:g::p:P:q:Q:N:M:K:A:B:C:i:t:T:s:S:xXv::hd:ry:V:a:R:G:Y:"
 
 #if defined(PARSEC_HAVE_GETOPT_LONG)
 static struct option long_options[] =
@@ -218,6 +218,8 @@ static struct option long_options[] =
     {"x",           no_argument,        0, 'x'},
     {"check_inv",   no_argument,        0, 'X'},
     {"X",           no_argument,        0, 'X'},
+    {"lookahead",   required_argument,  0, 'Y'},
+    {"Y",           required_argument,  0, 'Y'},
 
     {"sync",        no_argument,        0, 'b'},
     {"b",           no_argument,        0, 'b'},
@@ -274,6 +276,7 @@ static void read_arguments(int *_argc, char*** _argv, int* iparam)
     iparam[IPARAM_RANDOM_SEED] = 3872;
     iparam[IPARAM_MATRIX_INIT] = dplasmaMatrixRandom;
     iparam[IPARAM_NRUNS] = 1;
+    iparam[IPARAM_LOOKAHEAD] = 1;
 
     do {
 #if defined(PARSEC_HAVE_GETOPT_LONG)
@@ -343,6 +346,7 @@ static void read_arguments(int *_argc, char*** _argv, int* iparam)
             case 'T': iparam[IPARAM_NB] = atoi(optarg); break;
             case 's': iparam[IPARAM_KP] = atoi(optarg); break;
             case 'S': iparam[IPARAM_KQ] = atoi(optarg); break;
+            case 'Y': iparam[IPARAM_LOOKAHEAD] = atoi(optarg); break;
 
             case 'X': iparam[IPARAM_CHECKINV] = 1;
                       /* Fall through */
@@ -515,6 +519,9 @@ static void parse_arguments(int *iparam) {
     /* HQR */
     if(-'P' == iparam[IPARAM_QR_HLVL_SZE]) iparam[IPARAM_QR_HLVL_SZE] = iparam[IPARAM_P];
     if(-'Q' == iparam[IPARAM_QR_HLVL_SZE]) iparam[IPARAM_QR_HLVL_SZE] = iparam[IPARAM_Q];
+
+    /* lookahead */
+    if(1 == iparam[IPARAM_LOOKAHEAD]) iparam[IPARAM_LOOKAHEAD] = iparam[IPARAM_P];
 }
 
 static void print_arguments(int* iparam)

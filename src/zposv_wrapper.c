@@ -80,7 +80,7 @@ dplasma_zposv( parsec_context_t *parsec,
     parsec_taskpool_t *parsec_ztrsm2 = NULL;
     parsec_taskpool_t *parsec_zpotrf = NULL;
 
-    parsec_zpotrf = dplasma_zpotrf_New(uplo, A, &info);
+    parsec_zpotrf = dplasma_zpotrf_New(uplo, A, &info, 1);
     if ( uplo == dplasmaUpper ) {
       parsec_ztrsm1 = dplasma_ztrsm_New(dplasmaLeft, uplo, dplasmaConjTrans, dplasmaNonUnit, 1.0, A, B);
       parsec_ztrsm2 = dplasma_ztrsm_New(dplasmaLeft, uplo, dplasmaNoTrans,   dplasmaNonUnit, 1.0, A, B);
@@ -99,7 +99,7 @@ dplasma_zposv( parsec_context_t *parsec,
     dplasma_ztrsm_Destruct( parsec_ztrsm1 );
     dplasma_ztrsm_Destruct( parsec_ztrsm2 );
 #else
-    info = dplasma_zpotrf( parsec, uplo, A);
+    info = dplasma_zpotrf( parsec, uplo, A, 1);
     if ( info == 0 ) {
       if ( uplo == dplasmaUpper ) {
         dplasma_ztrsm( parsec, dplasmaLeft, uplo, dplasmaConjTrans, dplasmaNonUnit, 1.0, A, B );

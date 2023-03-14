@@ -172,7 +172,7 @@ static void destroy_workspace(void *_ws, void *_n)
 parsec_taskpool_t*
 dplasma_zpotrf_New( dplasma_enum_t uplo,
                     parsec_tiled_matrix_t *A,
-                    int *info )
+                    int *info, int lookahead )
 {
     parsec_zpotrf_L_taskpool_t *parsec_zpotrf = NULL;
     char workspace_info_name[64];
@@ -191,7 +191,7 @@ dplasma_zpotrf_New( dplasma_enum_t uplo,
     if ( uplo == dplasmaUpper ) {
         tp = (parsec_taskpool_t*)parsec_zpotrf_U_new( uplo, ddc_A, info);
     } else {
-        tp = (parsec_taskpool_t*)parsec_zpotrf_L_new( uplo, ddc_A, info);
+        tp = (parsec_taskpool_t*)parsec_zpotrf_L_new( uplo, ddc_A, info, lookahead);
     }
     parsec_zpotrf =  (parsec_zpotrf_L_taskpool_t*)tp;
 
@@ -306,12 +306,12 @@ dplasma_zpotrf_Destruct( parsec_taskpool_t *tp )
 int
 dplasma_zpotrf( parsec_context_t *parsec,
                 dplasma_enum_t uplo,
-                parsec_tiled_matrix_t *A )
+                parsec_tiled_matrix_t *A, int lookahead )
 {
     parsec_taskpool_t *parsec_zpotrf = NULL;
     int info = 0, ginfo = 0 ;
 
-    parsec_zpotrf = dplasma_zpotrf_New( uplo, A, &info );
+    parsec_zpotrf = dplasma_zpotrf_New( uplo, A, &info, lookahead );
 
     if ( parsec_zpotrf != NULL )
     {
@@ -386,12 +386,12 @@ dplasma_zpotrf( parsec_context_t *parsec,
 int
 dplasma_zpotrf_rec( parsec_context_t *parsec,
                     dplasma_enum_t uplo,
-                    parsec_tiled_matrix_t *A, int hmb )
+                    parsec_tiled_matrix_t *A, int hmb, int lookahead )
 {
     parsec_taskpool_t *parsec_zpotrf = NULL;
     int info = 0, ginfo = 0 ;
 
-    parsec_zpotrf = dplasma_zpotrf_New( uplo, A, &info );
+    parsec_zpotrf = dplasma_zpotrf_New( uplo, A, &info, lookahead );
     if ( parsec_zpotrf != NULL )
     {
         dplasma_zpotrf_setrecursive( (parsec_taskpool_t*)parsec_zpotrf, hmb );

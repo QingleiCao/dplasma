@@ -79,8 +79,8 @@ int    dplasma_zlauum( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_til
 int    dplasma_zpoinv( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_zpoinv_sync( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_zposv ( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *B);
-int    dplasma_zpotrf( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
-int    dplasma_zpotrf_rec( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int hmb );
+int    dplasma_zpotrf( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int lookahead);
+int    dplasma_zpotrf_rec( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int hmb, int lookahead );
 int    dplasma_zpotrs( parsec_context_t *parsec, dplasma_enum_t uplo, const parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *B);
 int    dplasma_zpotri( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_ztrtri( parsec_context_t *parsec, dplasma_enum_t uplo, dplasma_enum_t diag, parsec_tiled_matrix_t *A );
@@ -169,7 +169,7 @@ parsec_taskpool_t* dplasma_zgetrf_incpiv_New(parsec_tiled_matrix_t *A, parsec_ti
 parsec_taskpool_t* dplasma_zgetrf_nopiv_New(parsec_tiled_matrix_t *A, int *INFO);
 parsec_taskpool_t* dplasma_zlauum_New( dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 parsec_taskpool_t* dplasma_zpoinv_New( dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int *INFO);
-parsec_taskpool_t* dplasma_zpotrf_New( dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int *INFO);
+parsec_taskpool_t* dplasma_zpotrf_New( dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int *INFO, int lookahead);
 parsec_taskpool_t* dplasma_ztrtri_New( dplasma_enum_t uplo, dplasma_enum_t diag, parsec_tiled_matrix_t *A, int *info);
 parsec_taskpool_t* dplasma_zunglq_New( parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *T, parsec_tiled_matrix_t *Q);
 parsec_taskpool_t* dplasma_zunglq_param_New(dplasma_qrtree_t *qrtree, parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *TS, parsec_tiled_matrix_t *TT, parsec_tiled_matrix_t *Q);

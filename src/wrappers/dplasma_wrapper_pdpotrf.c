@@ -217,7 +217,7 @@ void pdpotrf_w(char * UPLO,
 #endif
 
     WRAPPER_PASTE_CODE_ENQUEUE_PROGRESS_DESTRUCT_KERNEL(parsec_ctx, dpotrf,
-                              (uplo_parsec, (parsec_tiled_matrix_t*)dcA, info),
+                              (uplo_parsec, (parsec_tiled_matrix_t*)dcA, info, 1),
                               dplasma_dpotrf_Destruct( PARSEC_dpotrf ),
                               rank_A, P_A, Q_A, NB_A, gN_A, comm_A);
 

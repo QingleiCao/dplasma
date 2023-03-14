@@ -78,6 +78,7 @@ uplo       [type = dplasma_enum_t]
 ddescA     [type = "dplasma_data_collection_t*"]
 descA      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
 INFO       [type = "int*"]
+lookahead  [type = "int"]
 
 PRI_CHANGE    [type = "int" hidden = on default = 0 ]
 PRI_MAX       [type = "int" hidden = on default = "(descA->mt * ( 6 + descA->mt * ( 6 + descA->mt )))" ]
@@ -217,8 +218,8 @@ RW    C <- (k == 0) ? ddescA(m, k)               [ type        = %{ return ADTT_
         -> ddescA(m, k)                          [ type        = %{ return ADTT_CP(_f_C, ddescA, loc_C, DEFAULT); %}
                                                    type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
 
-CTL ctl -> ctl potrf_zgemm(m, k+1, 0)
-CTL ctl1 -> ctl1 potrf_zherk(0, m)
+CTL ctl -> ctl potrf_zgemm(m, k+lookahead, 0)
+//CTL ctl1 -> (k==m-lookahead)? ctl1 potrf_zherk(0, m)
 
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * ((2 * descA->mt) - k - m - 1) * (m - k) : PRI_MAX
 
@@ -333,7 +334,7 @@ RW    T <- (k == 0)   ? ddescA(m, m)          [ type        = %{ return ADTT_REA
         <- (k != 0)   ? T potrf_zherk(k-1, m) [ type_remote = %{ return ADTT_DC(ddescA, loc_T, DEFAULT, TILED); %} ]
         -> (m == k+1) ? T potrf_zpotrf(m)  : T potrf_zherk(k+1, m) /* dep OUT: rely on datacopy dtt for sending */
 
-CTL ctl1 <- (k == 0)? ctl1 potrf_ztrsm(m, m-1)
+//CTL ctl1 <- (k == 0 && m >= lookahead)? ctl1 potrf_ztrsm(m, m-lookahead)
 
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * (m - k) : PRI_MAX
 
@@ -443,7 +444,7 @@ RW    C <- (k == 0)   ? ddescA(m, n)             [ type        = %{ return ADTT_
         <- (k != 0)   ? C potrf_zgemm(m, n, k-1) [ type_remote = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, TILED); %} ]
         -> (n == k+1) ? C potrf_ztrsm(m, n) : C potrf_zgemm(m, n, k+1) /* dep OUT: rely on datacopy dtt for sending */
 
-CTL ctl <- (k == 0)? ctl potrf_ztrsm(m, n-1)
+CTL ctl <- (k == 0 && n >= lookahead)? ctl potrf_ztrsm(m, n-lookahead)
 
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * ((2 * descA->mt) - m - n - 3) * (m - n) + 6 * (m - k) : PRI_MAX
 

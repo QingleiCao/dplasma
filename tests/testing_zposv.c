@@ -131,7 +131,7 @@ int main(int argc, char ** argv)
         /* Compute */
         if ( loud > 2 ) printf("Compute ... ... ");
         info = dplasma_zpotrf(parsec, uplo[u],
-                              (parsec_tiled_matrix_t *)&dcA );
+                              (parsec_tiled_matrix_t *)&dcA, 1 );
         if ( info == 0 ) {
             dplasma_zpotrs(parsec, uplo[u],
                            (parsec_tiled_matrix_t *)&dcA,
@@ -179,7 +179,7 @@ int main(int argc, char ** argv)
 
         /* Compute */
         if ( loud > 2 ) printf("Compute ... ... ");
-        info = dplasma_zpotrf(parsec, uplo[u], (parsec_tiled_matrix_t *)&dcA );
+        info = dplasma_zpotrf(parsec, uplo[u], (parsec_tiled_matrix_t *)&dcA, 1 );
         if ( info == 0 ) {
             dplasma_ztrsm(parsec, dplasmaLeft, uplo[u], t1, dplasmaNonUnit, 1.0,
                           (parsec_tiled_matrix_t *)&dcA,
@@ -227,7 +227,7 @@ int main(int argc, char ** argv)
 
         /* Compute */
         if ( loud > 2 ) printf("Compute ... ... ");
-        info = dplasma_zpotrf(parsec, uplo[u], (parsec_tiled_matrix_t *)&dcA );
+        info = dplasma_zpotrf(parsec, uplo[u], (parsec_tiled_matrix_t *)&dcA, 1 );
 
         if ( info == 0 ) {
             info = dplasma_zpotri(parsec, uplo[u], (parsec_tiled_matrix_t *)&dcA );

@@ -195,6 +195,12 @@ dplasma_zpotrf_New( dplasma_enum_t uplo,
     }
     parsec_zpotrf =  (parsec_zpotrf_L_taskpool_t*)tp;
 
+
+    struct timeval tstart;
+    gettimeofday(&tstart, NULL);
+    double start_time = tstart.tv_sec + tstart.tv_usec / 1.0e6;
+    parsec_zpotrf->_g_start_time_potrf = start_time;
+
     parsec_zpotrf->_g_PRI_CHANGE = dplasma_aux_get_priority_limit( "POTRF", A );
     if(0 == parsec_zpotrf->_g_PRI_CHANGE)
       parsec_zpotrf->_g_PRI_CHANGE = A->nt;

@@ -85,6 +85,7 @@ PRI_MAX       [type = "int" hidden = on default = "(descA->mt * ( 6 + descA->mt 
 smallnb       [type = "int" hidden = on default = "descA->mb" ]
 CuHandlesID   [type = "int" hidden = on default = -1 ]
 POWorkspaceID [type = "int" hidden = on default = -1 ]
+start_time_potrf [type = "double" hidden = on default = 0 ]
 
 /**************************************************
  *               potrf_zpotrf                     *
@@ -219,7 +220,6 @@ RW    C <- (k == 0) ? ddescA(m, k)               [ type        = %{ return ADTT_
                                                    type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
 
 CTL ctl -> ctl potrf_zgemm(m, k+lookahead, 0)
-//CTL ctl1 -> (k==m-lookahead)? ctl1 potrf_zherk(0, m)
 
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * ((2 * descA->mt) - k - m - 1) * (m - k) : PRI_MAX
 
@@ -334,7 +334,6 @@ RW    T <- (k == 0)   ? ddescA(m, m)          [ type        = %{ return ADTT_REA
         <- (k != 0)   ? T potrf_zherk(k-1, m) [ type_remote = %{ return ADTT_DC(ddescA, loc_T, DEFAULT, TILED); %} ]
         -> (m == k+1) ? T potrf_zpotrf(m)  : T potrf_zherk(k+1, m) /* dep OUT: rely on datacopy dtt for sending */
 
-//CTL ctl1 <- (k == 0 && m >= lookahead)? ctl1 potrf_ztrsm(m, m-lookahead)
 
 ; (m >= (descA->mt - PRI_CHANGE)) ? (descA->mt - m) * (descA->mt - m) * (descA->mt - m) + 3 * (m - k) : PRI_MAX
 
@@ -461,6 +460,11 @@ BODY [type=CUDA
 #if DEBUG_INFO
     printf("%d %d %d GEMM\n", m, n, k);
 #endif
+
+    struct timeval tstart;
+    gettimeofday(&tstart, NULL);
+    double start_time = tstart.tv_sec + tstart.tv_usec / 1.0e6 - start_time_potrf;
+    //printf("GEMM %d %d %d : %lf\n", m, n, k, start_time);
 
 #if defined(PRECISION_z) || defined(PRECISION_c)
     cuDoubleComplex zone  = make_cuDoubleComplex( 1., 0.);

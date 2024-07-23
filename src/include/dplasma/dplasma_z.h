@@ -79,6 +79,7 @@ int    dplasma_zlauum( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_til
 int    dplasma_zpoinv( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_zpoinv_sync( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_zposv ( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *B);
+int    dplasma_zgtsv( parsec_context_t *parsec, parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *B);
 int    dplasma_zpotrf( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A);
 int    dplasma_zpotrf_rec( parsec_context_t *parsec, dplasma_enum_t uplo, parsec_tiled_matrix_t *A, int hmb );
 int    dplasma_zpotrs( parsec_context_t *parsec, dplasma_enum_t uplo, const parsec_tiled_matrix_t *A, parsec_tiled_matrix_t *B);

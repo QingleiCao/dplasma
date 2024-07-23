@@ -58,6 +58,9 @@ set(JDF
   #
   # Lapack
   #
+  # Tridiagonal solve
+  zgtsv.jdf
+  #
   # Cholesky
   zpotrf_U.jdf zpotrf_L.jdf
   ztrtri_L.jdf ztrtri_U.jdf
@@ -144,6 +147,9 @@ set(SOURCES
   zger_wrapper.c
   #
   # Lapack
+  #
+  # Tridiagonal solve
+  zgtsv_wrapper.c
   #
   # Cholesky
   zposv_wrapper.c

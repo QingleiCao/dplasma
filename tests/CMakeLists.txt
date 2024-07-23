@@ -32,6 +32,9 @@ set(TESTS
    #
    # Lapack
    #
+   # Tridiagonal solve
+   testing_zgtsv.c
+   #
    # Cholesky
    testing_zpotrf.c
    testing_zposv.c

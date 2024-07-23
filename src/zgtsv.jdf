@@ -1,0 +1,104 @@
+extern "C" %{
+/*
+ * Copyright (c) 2010-2023 The University of Tennessee and The University
+ *                         of Tennessee Research Foundation.  All rights
+ *                         reserved.
+ * Copyright (c) 2013      Inria. All rights reserved.
+ * $COPYRIGHT
+ *
+ * @precisions normal z -> s d c
+ *
+ */
+#include "dplasma/config.h"
+#if defined(DPLASMA_HAVE_CUDA)
+#include <cublas_v2.h>
+#include "potrf_cublas_utils.h"
+#endif  /* defined(DPLASMA_HAVE_CUDA) */
+
+#include "dplasmajdf.h"
+#include "parsec/data_dist/matrix/matrix.h"
+
+/* Define the different shapes this JDF is using */
+#define DEFAULT 0
+
+/* Assume the functions on type & type_remote will return parsec_arena_datatype_t */
+#define JDF2C_TYPE_ADT_NOT_INDEX
+
+/* Include the functions to obtain the parsec_arena_datatype_t */
+#include "dplasmajdf_lapack_dtt.h"
+//#define FULL_CONVERSION
+#ifdef FULL_CONVERSION
+#define ADTT_READ(dM, loc, shape, layout) ADTT_DC(dM, loc, shape, layout)
+#else
+#define ADTT_READ(dM, loc, shape, layout) ADTT_DC(dM, loc, shape, LAPACK)
+#endif
+
+/* Note: with this approach to support LAPACK format and minimize
+ * the number of tile conversions performed, it is critical to
+ * determined the correct location on the matrix where the tile was
+ * originated from.
+ * Note that the LOC parameters do not correspond to the binding of the
+ * task to the matrix (although sometimes they match). These parameters
+ * correspond to the location were the datacopy was originate on the matrix (maybe
+ * it was read on another task).
+ * If there is no possibility to determine it (datacopy passed along multiple
+ * tasks and that information is lost) the approach is to force a reshapping.
+ *
+ */
+
+%}
+
+/* Globals
+ */
+ddescA     [type = "dplasma_data_collection_t*"]
+descA      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
+ddescB     [type = "dplasma_data_collection_t*"]
+descB      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
+
+CuHandlesID   [type = "int" hidden = on default = -1 ]
+
+/**************************************************
+ *               Batched Tasks                    *
+ **************************************************/
+batched_task(k) 
+
+// Execution space
+k = 0 .. descA->nt-1
+
+// Locals
+loc_T = %{ return LOC(descA, 0, k); %}
+loc_C = %{ return LOC(descB, 0, k); %}
+
+// Parallel partitioning
+:descA(0, k)
+
+// Parameters
+
+READ T <- ddescA(0, k)            [ type        = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, TILED); %}
+                                    type_data   = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, LAPACK); %} ]
+
+RW   C <- ddescB(0, k)            [ type        = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, TILED); %}
+                                    type_data   = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, LAPACK); %} ]
+       -> ddescB(0, k)            [ type        = %{ return ADTT_CP(_f_T, ddescA, loc_C, DEFAULT); %}
+                                    type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
+
+
+/*
+BODY [type=CUDA]
+{
+    cusolverStatus_t status;
+    dplasma_cuda_handles_t *handles;
+    handles = parsec_info_get(&gpu_stream->infos, CuHandlesID);
+    assert(NULL != handles);
+
+}
+END
+*/
+
+BODY
+{
+    int nrhs = 1;
+    //printf("k %d\n", k);
+    LAPACKE_zgtsv(LAPACK_COL_MAJOR, descA->mb, nrhs, T, T+descA->mb*sizeof(double), T+descA->mb*sizeof(double)*2, C, descA->mb);
+}
+END

@@ -37,7 +37,8 @@ dplasma_zgtsv_New( parsec_tiled_matrix_t *A,
     dplasma_data_collection_t * ddc_A = dplasma_wrap_data_collection(A);
     dplasma_data_collection_t * ddc_B = dplasma_wrap_data_collection(B);
 
-    tp = (parsec_taskpool_t*)parsec_zgtsv_new( ddc_A, ddc_B);
+    //tp = (parsec_taskpool_t*)parsec_zgtsv_new( ddc_A, ddc_B);
+    tp = (parsec_taskpool_t*)parsec_zgtsv_new( A, B);
 
     parsec_zgtsv =  (parsec_zgtsv_taskpool_t*)tp;
 
@@ -49,6 +50,7 @@ dplasma_zgtsv_New( parsec_tiled_matrix_t *A,
     parsec_zgtsv->_g_CuHandlesID = PARSEC_INFO_ID_UNDEFINED;
 #endif
 
+#if 0
     int shape = 0;
     dplasma_setup_adtt_all_loc( ddc_A,
                                 parsec_datatype_double_complex_t,
@@ -61,6 +63,7 @@ dplasma_zgtsv_New( parsec_tiled_matrix_t *A,
                                 &shape);
 
     assert(shape == MAX_SHAPES);
+#endif
     return tp;
 }
 
@@ -71,15 +74,20 @@ void
 dplasma_zgtsv_Destruct( parsec_taskpool_t *tp )
 {
     parsec_zgtsv_taskpool_t *parsec_zgtsv = (parsec_zgtsv_taskpool_t *)tp;
+#if 0
     dplasma_clean_adtt_all_loc(parsec_zgtsv->_g_ddescA, MAX_SHAPES);
     dplasma_data_collection_t * ddc_A = parsec_zgtsv->_g_ddescA;
     dplasma_clean_adtt_all_loc(parsec_zgtsv->_g_ddescB, MAX_SHAPES);
     dplasma_data_collection_t * ddc_B = parsec_zgtsv->_g_ddescB;
+#endif
 
     parsec_taskpool_free(tp);
+
+#if 0
     /* free the dplasma_data_collection_t */
     dplasma_unwrap_data_collection(ddc_A);
     dplasma_unwrap_data_collection(ddc_B);
+#endif
 }
 
 /**

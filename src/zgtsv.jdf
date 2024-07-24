@@ -50,10 +50,12 @@ extern "C" %{
 
 /* Globals
  */
-ddescA     [type = "dplasma_data_collection_t*"]
-descA      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
-ddescB     [type = "dplasma_data_collection_t*"]
-descB      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
+//ddescA     [type = "dplasma_data_collection_t*"]
+//descA      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
+//ddescB     [type = "dplasma_data_collection_t*"]
+//descB      [type = "parsec_tiled_matrix_t*" hidden = on default = "((dplasma_data_collection_t*)ddescA)->dc_original" aligned=ddescA]
+descA      [type = "parsec_tiled_matrix_t*"]
+descB      [type = "parsec_tiled_matrix_t*" aligned=descA]
 
 CuHandlesID   [type = "int" hidden = on default = -1 ]
 
@@ -74,13 +76,13 @@ loc_C = %{ return LOC(descB, 0, k); %}
 
 // Parameters
 
-READ T <- ddescA(0, k)            [ type        = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, TILED); %}
-                                    type_data   = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, LAPACK); %} ]
+READ T <- descA(0, k)            //[ type        = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, TILED); %}
+                                  //  type_data   = %{ return ADTT_READ(ddescA, loc_T, DEFAULT, LAPACK); %} ]
 
-RW   C <- ddescB(0, k)            [ type        = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, TILED); %}
-                                    type_data   = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, LAPACK); %} ]
-       -> ddescB(0, k)            [ type        = %{ return ADTT_CP(_f_T, ddescA, loc_C, DEFAULT); %}
-                                    type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
+RW   C <- descB(0, k)            //[ type        = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, TILED); %}
+                                  //  type_data   = %{ return ADTT_READ(ddescA, loc_C, DEFAULT, LAPACK); %} ]
+       -> descB(0, k)            //[ type        = %{ return ADTT_CP(_f_T, ddescA, loc_C, DEFAULT); %}
+                                  //  type_data   = %{ return ADTT_DC(ddescA, loc_C, DEFAULT, LAPACK); %} ]
 
 
 /*
@@ -97,8 +99,30 @@ END
 
 BODY
 {
-    int nrhs = 1;
+#if 0
+    for(int i = 0; i < descA->mb; i++) {
+        for(int j = 0; j < descA->nb; j++) {
+            fprintf(stderr, "%lf ", ((double *)T)[j*descA->mb+i]);
+        }
+        printf("\n");
+    }
+    printf("\n\n");
+
     //printf("k %d\n", k);
+    for(int i = 0; i < descB->mb; i++) {
+        fprintf(stderr, "%lf ", ((double *)C)[i]);
+    }           
+    printf("\n\n"); 
+#endif
+
+    int nrhs = 1;
     LAPACKE_zgtsv(LAPACK_COL_MAJOR, descA->mb, nrhs, T, T+descA->mb*sizeof(double), T+descA->mb*sizeof(double)*2, C, descA->mb);
+
+#if 0
+    for(int i = 0; i < descB->mb; i++) {
+        fprintf(stderr, "%lf ", ((double *)C)[i]);
+    }
+    printf("\n\n"); 
+#endif
 }
 END

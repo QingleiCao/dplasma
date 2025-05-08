@@ -24,7 +24,7 @@ int main(int argc, char ** argv)
     double *s1 = NULL;
     double *e  = NULL;
     int minMN;
-    int info_solution;
+    int info_solution = 0;
     double time_ge2gb, time_gb2bd, time_solve = -1.;
     int rc;
 

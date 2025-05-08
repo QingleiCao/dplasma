@@ -227,6 +227,7 @@ void pdlatsqr_w(int * M,
               double * WORK,
               int * LWORK,
               int * info){
+    (void)TAU; /* TAU parameter is not used in this implementation */
 
 
 #ifdef COUNT_WRAPPED_CALLS

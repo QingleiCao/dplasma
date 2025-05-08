@@ -45,7 +45,7 @@ int dplasma_aux_get_priority_limit( char* function, const parsec_tiled_matrix_t*
  *  @return depending on the number of nodes and the matrix size,
  *          the value to use for the look ahead in SUMMA.
  */
-int dplasma_aux_getGEMMLookahead( parsec_tiled_matrix_t *A );
+int dplasma_aux_getGEMMLookahead( const parsec_tiled_matrix_t *A );
 
 /**
  *  Create a dplasma-specific communicator

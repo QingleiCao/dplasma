@@ -91,7 +91,7 @@ dplasma_aux_get_priority_limit( char* function, const parsec_tiled_matrix_t* dc 
 }
 
 int
-dplasma_aux_getGEMMLookahead( parsec_tiled_matrix_t *A )
+dplasma_aux_getGEMMLookahead( const parsec_tiled_matrix_t *A )
 {
     /**
      * Assume that the number of threads per node is constant, and compute the
@@ -159,7 +159,7 @@ int dplasma_advise_data_on_device_ops_2D(parsec_execution_stream_t *es,
                                     PARSEC_DEV_DATA_ADVICE_PREFERRED_DEVICE );
     }
 
-    (void)es; (void)uplo;
+    (void)es; (void)uplo; (void)_A;
     return 0;
 }
 

@@ -13,6 +13,10 @@
 #include <math.h>
 #include <sys/time.h>
 
+#if defined(ON_FUGAKU)
+#define main MAIN__
+#endif
+
 int main(int argc, char ** argv)
 {
     parsec_context_t* parsec;

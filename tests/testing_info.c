@@ -8,6 +8,10 @@
 #include <string.h>
 #include "utils/dplasma_info.h"
 
+#if defined(ON_FUGAKU)
+#define main MAIN__
+#endif
+
 int main(int argc, char *argv[])
 {
     dplasma_info_t info;

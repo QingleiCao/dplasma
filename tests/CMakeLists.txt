@@ -26,6 +26,7 @@ set(TESTS
    testing_zlanm2.c
    # Level 3 Blas
    testing_zgemm.c
+   testing_zgemm_sparse.c
    testing_zhemm.c
    testing_zsymm.c
    testing_zherk.c

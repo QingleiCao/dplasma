@@ -295,6 +295,7 @@ int check_zpoinv( parsec_context_t *parsec, int loud, dplasma_enum_t uplo, parse
 #define DPLASMA_ZGEMM_TT       10
 #define DPLASMA_ZGEMM_TT_SUMMA 11
 #define DPLASMA_ZGEMM_TT_GPU   12
+#define DPLASMA_ZGEMM_NN_SPARSE 13
 
 /**********************************************************
  * Work in progress

@@ -15,8 +15,12 @@
 #include "parsec/data_dist/matrix/two_dim_rectangle_cyclic.h"
 #include "parsec/mca/device/device_gpu.h"
 #include "utils/dplasma_info.h"
+#include "utils/dplasma_lapack_adtt.h"
+#include <stdint.h>
+#include <string.h>
 
 #include "zgemm_NN.h"
+#include "zgemm_NN_sparse.h"
 #include "zgemm_NT.h"
 #include "zgemm_TN.h"
 #include "zgemm_TT.h"
@@ -146,6 +150,408 @@ dplasma_zgemm_summa_new(dplasma_enum_t transA, dplasma_enum_t transB,
     assert(shape == MAX_SHAPES);
 
     (void)opt; //No user-defined options for this algorithm
+    return zgemm_tp;
+}
+
+typedef struct {
+    int nnz;
+    int nnz_cap;
+    int nrows;
+    int ncols;
+} dplasma_csr_tile_hdr_t;
+
+static inline int
+dplasma_zgemm_sparse_keep_entry(int gi, int gj, int li, int lj, int threshold_per_thousand)
+{
+    unsigned int h = (unsigned int)((gi + 1) * 1315423911u) ^ (unsigned int)((gj + 1) * 2654435761u);
+    int keep = ((int)(h % 1000u) < threshold_per_thousand);
+    if( li == 0 && lj == 0 ) {
+        keep = 1; /* keep at least one entry candidate per tile */
+    }
+    return keep;
+}
+
+static int
+dplasma_zgemm_build_sparse_tile_matrix(const parsec_tiled_matrix_t *Ain,
+                                       int threshold_per_thousand,
+                                       parsec_matrix_block_cyclic_t **Aout)
+{
+    parsec_matrix_block_cyclic_t *A = (parsec_matrix_block_cyclic_t*)Ain;
+    parsec_matrix_block_cyclic_t *As = (parsec_matrix_block_cyclic_t*)malloc(sizeof(parsec_matrix_block_cyclic_t));
+    /* Each sparse tile stores CSR as three arrays in one contiguous payload:
+     * rowptr[mb+1], colind[mb*nb], vals[mb*nb].
+     * We keep max capacities here and track effective nnz in the header.
+     */
+    size_t vals_capacity = (size_t)A->super.mb * (size_t)A->super.nb;
+    size_t tile_bytes = sizeof(int) * (4 + A->super.mb + 1 + vals_capacity)
+                      + vals_capacity * sizeof(dplasma_complex64_t);
+
+    parsec_matrix_block_cyclic_init(As, PARSEC_MATRIX_BYTE, PARSEC_MATRIX_TILE,
+                                    A->super.super.myrank,
+                                    A->super.mb, A->super.nb,
+                                    A->super.lm, A->super.ln,
+                                    A->super.i, A->super.j,
+                                    A->super.m, A->super.n,
+                                    A->grid.rows, A->grid.cols, A->grid.krows, A->grid.kcols, A->grid.ip, A->grid.jq);
+    As->super.bsiz = (int)tile_bytes;
+    As->mat = parsec_data_allocate((size_t)As->super.nb_local_tiles * (size_t)As->super.bsiz);
+    parsec_data_collection_set_key((parsec_data_collection_t*)As, "zgemm_sparse_tile");
+
+    for(int m = 0; m < A->super.mt; m++) {
+        int rows = (m == A->super.mt - 1) ? (A->super.m - m * A->super.mb) : A->super.mb;
+        int ldas = BLKLDD(&A->super, m);
+        for(int n = 0; n < A->super.nt; n++) {
+            if( A->super.super.myrank != A->super.super.rank_of((parsec_data_collection_t*)&A->super, m, n) ) {
+                continue;
+            }
+            int cols = (n == A->super.nt - 1) ? (A->super.n - n * A->super.nb) : A->super.nb;
+            parsec_data_t *src_data = A->super.super.data_of((parsec_data_collection_t*)&A->super, m, n);
+            parsec_data_t *dst_data = As->super.super.data_of((parsec_data_collection_t*)&As->super, m, n);
+            dplasma_complex64_t *src = (dplasma_complex64_t*)PARSEC_DATA_COPY_GET_PTR(src_data->device_copies[0]);
+            uint8_t *dst = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(dst_data->device_copies[0]);
+            dplasma_csr_tile_hdr_t *hdr = (dplasma_csr_tile_hdr_t*)dst;
+            int *rowptr = (int*)(hdr + 1);
+            int *colind = rowptr + (A->super.mb + 1);
+            dplasma_complex64_t *vals = (dplasma_complex64_t*)(colind + vals_capacity);
+            int nnz = 0;
+
+            hdr->nnz = 0;
+            hdr->nnz_cap = (int)vals_capacity;
+            hdr->nrows = A->super.mb;
+            hdr->ncols = A->super.nb;
+            rowptr[0] = 0;
+            for(int i = 0; i < A->super.mb; i++) {
+                if( i < rows ) {
+                    for(int j = 0; j < cols; j++) {
+                        int gi = m * A->super.mb + i;
+                        int gj = n * A->super.nb + j;
+                        dplasma_complex64_t v = src[j * ldas + i];
+                        if( dplasma_zgemm_sparse_keep_entry(gi, gj, i, j, threshold_per_thousand) &&
+                            v != (dplasma_complex64_t)0.0 ) {
+                            colind[nnz] = j;
+                            vals[nnz] = v;
+                            nnz++;
+                        }
+                    }
+                }
+                rowptr[i + 1] = nnz;
+            }
+            hdr->nnz = nnz;
+        }
+    }
+
+    *Aout = As;
+    return PARSEC_SUCCESS;
+}
+
+static void
+dplasma_zgemm_destroy_sparse_tile_matrix(parsec_matrix_block_cyclic_t *A)
+{
+    if( NULL == A ) {
+        return;
+    }
+    if( NULL != A->mat ) {
+        parsec_data_free(A->mat);
+        A->mat = NULL;
+    }
+    parsec_tiled_matrix_destroy(&A->super);
+    free(A);
+}
+
+static inline void
+dplasma_zgemm_csr_tile_arrays(uint8_t *tile,
+                              dplasma_csr_tile_hdr_t **hdr,
+                              int **rowptr, int **colind, dplasma_complex64_t **vals)
+{
+    *hdr = (dplasma_csr_tile_hdr_t*)tile;
+    *rowptr = (int*)(*hdr + 1);
+    *colind = *rowptr + ((*hdr)->nrows + 1);
+    *vals = (dplasma_complex64_t*)(*colind + (*hdr)->nnz_cap);
+}
+
+static int
+dplasma_zgemm_symbolic_nnz_tile(parsec_matrix_block_cyclic_t *sA,
+                                parsec_matrix_block_cyclic_t *sB,
+                                parsec_matrix_block_cyclic_t *C0,
+                                int m, int n, dplasma_complex64_t beta)
+{
+    int rows = (m == C0->super.mt - 1) ? (C0->super.m - m * C0->super.mb) : C0->super.mb;
+    int cols = (n == C0->super.nt - 1) ? (C0->super.n - n * C0->super.nb) : C0->super.nb;
+    int ldc0 = BLKLDD(&C0->super, m);
+    parsec_data_t *c0_data = C0->super.super.data_of((parsec_data_collection_t*)&C0->super, m, n);
+    dplasma_complex64_t *c0 = (dplasma_complex64_t*)PARSEC_DATA_COPY_GET_PTR(c0_data->device_copies[0]);
+    uint8_t *marker = (uint8_t*)calloc((size_t)cols, sizeof(uint8_t));
+    int nnz = 0;
+
+    if( NULL == marker ) {
+        return rows * cols;
+    }
+
+    for(int i = 0; i < rows; i++) {
+        memset(marker, 0, (size_t)cols);
+        if( beta != (dplasma_complex64_t)0.0 ) {
+            for(int j = 0; j < cols; j++) {
+                if( c0[j * ldc0 + i] != (dplasma_complex64_t)0.0 ) {
+                    marker[j] = 1;
+                }
+            }
+        }
+        for(int k = 0; k < sA->super.nt; k++) {
+            parsec_data_t *a_data = sA->super.super.data_of((parsec_data_collection_t*)&sA->super, m, k);
+            parsec_data_t *b_data = sB->super.super.data_of((parsec_data_collection_t*)&sB->super, k, n);
+            uint8_t *atile = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(a_data->device_copies[0]);
+            uint8_t *btile = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(b_data->device_copies[0]);
+            dplasma_csr_tile_hdr_t *ah, *bh;
+            int *a_rowptr, *a_colind, *b_rowptr, *b_colind;
+            dplasma_complex64_t *a_vals, *b_vals;
+            dplasma_zgemm_csr_tile_arrays(atile, &ah, &a_rowptr, &a_colind, &a_vals);
+            dplasma_zgemm_csr_tile_arrays(btile, &bh, &b_rowptr, &b_colind, &b_vals);
+            for(int ia = a_rowptr[i]; ia < a_rowptr[i + 1]; ia++) {
+                int p = a_colind[ia];
+                for(int ib = b_rowptr[p]; ib < b_rowptr[p + 1]; ib++) {
+                    int j = b_colind[ib];
+                    if( j < cols ) {
+                        marker[j] = 1;
+                    }
+                }
+            }
+            (void)ah; (void)bh; (void)a_vals; (void)b_vals;
+        }
+        for(int j = 0; j < cols; j++) {
+            nnz += (marker[j] != 0);
+        }
+    }
+
+    free(marker);
+    return nnz;
+}
+
+static int
+dplasma_zgemm_build_sparse_c_matrix(parsec_matrix_block_cyclic_t *sA,
+                                    parsec_matrix_block_cyclic_t *sB,
+                                    const parsec_tiled_matrix_t *C0in,
+                                    dplasma_complex64_t beta,
+                                    parsec_matrix_block_cyclic_t **Cout)
+{
+    parsec_matrix_block_cyclic_t *C0 = (parsec_matrix_block_cyclic_t*)C0in;
+    parsec_matrix_block_cyclic_t *Cs = (parsec_matrix_block_cyclic_t*)malloc(sizeof(parsec_matrix_block_cyclic_t));
+    int mb = C0->super.mb;
+    int nb = C0->super.nb;
+    int max_nnz = 1;
+    int fallback_dense = (C0->super.super.nodes > 1);
+
+    if( fallback_dense ) {
+        max_nnz = mb * nb;
+    } else {
+        for(int m = 0; m < C0->super.mt; m++) {
+            for(int n = 0; n < C0->super.nt; n++) {
+                if( C0->super.super.myrank != C0->super.super.rank_of((parsec_data_collection_t*)&C0->super, m, n) ) {
+                    continue;
+                }
+                int nnz = dplasma_zgemm_symbolic_nnz_tile(sA, sB, C0, m, n, beta);
+                max_nnz = dplasma_imax(max_nnz, nnz);
+            }
+        }
+    }
+
+    {
+        size_t tile_bytes = sizeof(int) * (4 + mb + 1 + (size_t)max_nnz)
+                          + (size_t)max_nnz * sizeof(dplasma_complex64_t);
+        parsec_matrix_block_cyclic_init(Cs, PARSEC_MATRIX_BYTE, PARSEC_MATRIX_TILE,
+                                        C0->super.super.myrank,
+                                        mb, nb,
+                                        C0->super.lm, C0->super.ln,
+                                        C0->super.i, C0->super.j,
+                                        C0->super.m, C0->super.n,
+                                        C0->grid.rows, C0->grid.cols, C0->grid.krows, C0->grid.kcols, C0->grid.ip, C0->grid.jq);
+        Cs->super.bsiz = (int)tile_bytes;
+        Cs->mat = parsec_data_allocate((size_t)Cs->super.nb_local_tiles * (size_t)Cs->super.bsiz);
+        parsec_data_collection_set_key((parsec_data_collection_t*)Cs, "zgemm_sparse_c_tile");
+    }
+
+    for(int m = 0; m < C0->super.mt; m++) {
+        int rows = (m == C0->super.mt - 1) ? (C0->super.m - m * C0->super.mb) : C0->super.mb;
+        int ldc0 = BLKLDD(&C0->super, m);
+        for(int n = 0; n < C0->super.nt; n++) {
+            if( C0->super.super.myrank != C0->super.super.rank_of((parsec_data_collection_t*)&C0->super, m, n) ) {
+                continue;
+            }
+            int cols = (n == C0->super.nt - 1) ? (C0->super.n - n * C0->super.nb) : C0->super.nb;
+            parsec_data_t *c0_data = C0->super.super.data_of((parsec_data_collection_t*)&C0->super, m, n);
+            parsec_data_t *cs_data = Cs->super.super.data_of((parsec_data_collection_t*)&Cs->super, m, n);
+            dplasma_complex64_t *c0 = (dplasma_complex64_t*)PARSEC_DATA_COPY_GET_PTR(c0_data->device_copies[0]);
+            uint8_t *cst = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(cs_data->device_copies[0]);
+            dplasma_csr_tile_hdr_t *ch;
+            int *c_rowptr, *c_colind;
+            dplasma_complex64_t *c_vals;
+            ch = (dplasma_csr_tile_hdr_t*)cst;
+            ch->nnz = 0;
+            ch->nnz_cap = max_nnz;
+            ch->nrows = mb;
+            ch->ncols = nb;
+            dplasma_zgemm_csr_tile_arrays(cst, &ch, &c_rowptr, &c_colind, &c_vals);
+            int nnz = 0;
+
+            c_rowptr[0] = 0;
+
+            if( fallback_dense ) {
+                for(int i = 0; i < mb; i++) {
+                    if( i < rows ) {
+                        for(int j = 0; j < cols; j++) {
+                            c_colind[nnz] = j;
+                            c_vals[nnz] = beta * c0[j * ldc0 + i];
+                            nnz++;
+                        }
+                    }
+                    c_rowptr[i + 1] = nnz;
+                }
+            } else {
+                uint8_t *marker = (uint8_t*)calloc((size_t)cols, sizeof(uint8_t));
+                if( NULL == marker ) {
+                    dplasma_zgemm_destroy_sparse_tile_matrix(Cs);
+                    return PARSEC_ERROR;
+                }
+                for(int i = 0; i < rows; i++) {
+                    memset(marker, 0, (size_t)cols);
+                    if( beta != (dplasma_complex64_t)0.0 ) {
+                        for(int j = 0; j < cols; j++) {
+                            if( c0[j * ldc0 + i] != (dplasma_complex64_t)0.0 ) {
+                                marker[j] = 1;
+                            }
+                        }
+                    }
+                    for(int k = 0; k < sA->super.nt; k++) {
+                        parsec_data_t *a_data = sA->super.super.data_of((parsec_data_collection_t*)&sA->super, m, k);
+                        parsec_data_t *b_data = sB->super.super.data_of((parsec_data_collection_t*)&sB->super, k, n);
+                        uint8_t *atile = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(a_data->device_copies[0]);
+                        uint8_t *btile = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(b_data->device_copies[0]);
+                        dplasma_csr_tile_hdr_t *ah, *bh;
+                        int *a_rowptr, *a_colind, *b_rowptr, *b_colind;
+                        dplasma_complex64_t *a_vals, *b_vals;
+                        dplasma_zgemm_csr_tile_arrays(atile, &ah, &a_rowptr, &a_colind, &a_vals);
+                        dplasma_zgemm_csr_tile_arrays(btile, &bh, &b_rowptr, &b_colind, &b_vals);
+                        for(int ia = a_rowptr[i]; ia < a_rowptr[i + 1]; ia++) {
+                            int p = a_colind[ia];
+                            for(int ib = b_rowptr[p]; ib < b_rowptr[p + 1]; ib++) {
+                                int j = b_colind[ib];
+                                if( j < cols ) {
+                                    marker[j] = 1;
+                                }
+                            }
+                        }
+                        (void)ah; (void)bh; (void)a_vals; (void)b_vals;
+                    }
+                    for(int j = 0; j < cols; j++) {
+                        if( marker[j] ) {
+                            c_colind[nnz] = j;
+                            c_vals[nnz] = beta * c0[j * ldc0 + i];
+                            nnz++;
+                        }
+                    }
+                    c_rowptr[i + 1] = nnz;
+                }
+                for(int i = rows; i < mb; i++) {
+                    c_rowptr[i + 1] = nnz;
+                }
+                free(marker);
+            }
+            ch->nnz = nnz;
+        }
+    }
+
+    *Cout = Cs;
+    return PARSEC_SUCCESS;
+}
+
+static void
+dplasma_zgemm_sparse_c_to_dense(parsec_matrix_block_cyclic_t *Cs,
+                                parsec_tiled_matrix_t *Cdense)
+{
+    parsec_matrix_block_cyclic_t *C = (parsec_matrix_block_cyclic_t*)Cdense;
+    for(int m = 0; m < C->super.mt; m++) {
+        int rows = (m == C->super.mt - 1) ? (C->super.m - m * C->super.mb) : C->super.mb;
+        int ldc = BLKLDD(&C->super, m);
+        for(int n = 0; n < C->super.nt; n++) {
+            if( C->super.super.myrank != C->super.super.rank_of((parsec_data_collection_t*)&C->super, m, n) ) {
+                continue;
+            }
+            int cols = (n == C->super.nt - 1) ? (C->super.n - n * C->super.nb) : C->super.nb;
+            parsec_data_t *d_data = C->super.super.data_of((parsec_data_collection_t*)&C->super, m, n);
+            parsec_data_t *s_data = Cs->super.super.data_of((parsec_data_collection_t*)&Cs->super, m, n);
+            dplasma_complex64_t *dptr = (dplasma_complex64_t*)PARSEC_DATA_COPY_GET_PTR(d_data->device_copies[0]);
+            uint8_t *sptr = (uint8_t*)PARSEC_DATA_COPY_GET_PTR(s_data->device_copies[0]);
+            dplasma_csr_tile_hdr_t *ch;
+            int *c_rowptr, *c_colind;
+            dplasma_complex64_t *c_vals;
+            dplasma_zgemm_csr_tile_arrays(sptr, &ch, &c_rowptr, &c_colind, &c_vals);
+            for(int j = 0; j < cols; j++) {
+                for(int i = 0; i < rows; i++) {
+                    dptr[j * ldc + i] = (dplasma_complex64_t)0.0;
+                }
+            }
+            for(int i = 0; i < rows; i++) {
+                for(int ic = c_rowptr[i]; ic < c_rowptr[i + 1]; ic++) {
+                    int j = c_colind[ic];
+                    if( j < cols ) {
+                        dptr[j * ldc + i] = c_vals[ic];
+                    }
+                }
+            }
+            (void)ch;
+        }
+    }
+}
+
+static parsec_taskpool_t *
+dplasma_zgemm_sparse_new(dplasma_enum_t transA, dplasma_enum_t transB,
+                         dplasma_complex64_t alpha, const parsec_tiled_matrix_t* A, const parsec_tiled_matrix_t* B,
+                         dplasma_complex64_t beta,  parsec_tiled_matrix_t* C,
+                         dplasma_info_t opt)
+{
+    parsec_taskpool_t* zgemm_tp = NULL;
+    parsec_matrix_block_cyclic_t *sA = NULL, *sB = NULL, *sC = NULL;
+    int info_found = 0;
+    char info_value[DPLASMA_MAX_INFO_VAL];
+    int threshold_per_thousand = 1000;
+
+    if( dplasmaNoTrans != transA || dplasmaNoTrans != transB ) {
+        dplasma_error("dplasma_zgemm_sparse_new", "sparse-in-tile PTG implementation currently supports NoTrans/NoTrans only");
+        return NULL;
+    }
+
+    dplasma_info_get(opt, "DPLASMA:GEMM:SPARSE_PATTERN_PER_THOUSAND", DPLASMA_MAX_INFO_VAL, info_value, &info_found);
+    if( info_found ) {
+        threshold_per_thousand = atoi(info_value);
+        if( threshold_per_thousand < 0 ) threshold_per_thousand = 0;
+        if( threshold_per_thousand > 1000 ) threshold_per_thousand = 1000;
+    }
+
+    if( PARSEC_SUCCESS != dplasma_zgemm_build_sparse_tile_matrix(A, threshold_per_thousand, &sA) ||
+        PARSEC_SUCCESS != dplasma_zgemm_build_sparse_tile_matrix(B, threshold_per_thousand, &sB) ||
+        PARSEC_SUCCESS != dplasma_zgemm_build_sparse_c_matrix(sA, sB, C, beta, &sC) ) {
+        dplasma_zgemm_destroy_sparse_tile_matrix(sA);
+        dplasma_zgemm_destroy_sparse_tile_matrix(sB);
+        dplasma_zgemm_destroy_sparse_tile_matrix(sC);
+        dplasma_error("dplasma_zgemm_sparse_new", "failed to build CSR tile descriptors");
+        return NULL;
+    }
+
+    PARSEC_DEBUG_VERBOSE(3, parsec_debug_output, "zgemm_NN_sparse");
+    parsec_zgemm_NN_sparse_taskpool_t* tp;
+    tp = parsec_zgemm_NN_sparse_new(transA, transB, alpha, beta,
+                                    (parsec_data_collection_t*)sA,
+                                    (parsec_data_collection_t*)sB,
+                                    (parsec_data_collection_t*)sC,
+                                    C);
+    if( NULL == tp ) {
+        dplasma_zgemm_destroy_sparse_tile_matrix(sA);
+        dplasma_zgemm_destroy_sparse_tile_matrix(sB);
+        dplasma_zgemm_destroy_sparse_tile_matrix(sC);
+        return NULL;
+    }
+    zgemm_tp = (parsec_taskpool_t*)tp;
+
+    (void)opt;
     return zgemm_tp;
 }
 
@@ -496,6 +902,8 @@ dplasma_zgemm_New_ex( dplasma_enum_t transA, dplasma_enum_t transB,
                       dplasma_complex64_t beta,  parsec_tiled_matrix_t* C, dplasma_info_t opt)
 {
     parsec_taskpool_t* zgemm_tp = NULL;
+    int info_found = 0;
+    char info_value[DPLASMA_MAX_INFO_VAL];
 
     /* Check input arguments */
     if ((transA != dplasmaNoTrans) && (transA != dplasmaTrans) && (transA != dplasmaConjTrans)) {
@@ -505,6 +913,14 @@ dplasma_zgemm_New_ex( dplasma_enum_t transA, dplasma_enum_t transB,
     if ((transB != dplasmaNoTrans) && (transB != dplasmaTrans) && (transB != dplasmaConjTrans)) {
         dplasma_error("dplasma_zgemm_New", "illegal value of transB");
         return NULL /*-2*/;
+    }
+
+    dplasma_info_get(opt, "DPLASMA:GEMM:SPARSE_IN_TILE", DPLASMA_MAX_INFO_VAL, info_value, &info_found);
+    if( info_found && atoi(info_value) != 0 ) {
+        zgemm_tp = dplasma_zgemm_sparse_new(transA, transB, alpha, A, B, beta, C, opt);
+        if( NULL != zgemm_tp ) {
+            return zgemm_tp;
+        }
     }
 
     if ( C->dtype & parsec_matrix_block_cyclic_type ) {
@@ -585,6 +1001,8 @@ dplasma_zgemm_Destruct( parsec_taskpool_t *tp )
 {
     parsec_zgemm_NN_taskpool_t *zgemm_tp = (parsec_zgemm_NN_taskpool_t *)tp;
     dplasma_data_collection_t *ddc_A = NULL, *ddc_B = NULL, *ddc_C = NULL;
+    parsec_matrix_block_cyclic_t *sparseA = NULL, *sparseB = NULL, *sparseC = NULL;
+    parsec_tiled_matrix_t *denseC = NULL;
 
     switch( zgemm_tp->_g_gemm_type ) {
     case DPLASMA_ZGEMM_NN:
@@ -595,6 +1013,18 @@ dplasma_zgemm_Destruct( parsec_taskpool_t *tp )
         ddc_B = zgemm_tp->_g_ddescB;
         ddc_C = zgemm_tp->_g_ddescC;
         break;
+    case DPLASMA_ZGEMM_NN_SPARSE: {
+        parsec_zgemm_NN_sparse_taskpool_t *zgemm_sparse_tp = (parsec_zgemm_NN_sparse_taskpool_t*)tp;
+        sparseA = (parsec_matrix_block_cyclic_t*)zgemm_sparse_tp->_g_ddescA;
+        sparseB = (parsec_matrix_block_cyclic_t*)zgemm_sparse_tp->_g_ddescB;
+        sparseC = (parsec_matrix_block_cyclic_t*)zgemm_sparse_tp->_g_ddescC;
+        denseC = zgemm_sparse_tp->_g_denseC;
+        /* Finalize: scatter CSR C into the user's dense C while the taskpool
+         * and tile copies are still valid (before parsec_taskpool_free). */
+        if( NULL != sparseC && NULL != denseC ) {
+            dplasma_zgemm_sparse_c_to_dense(sparseC, denseC);
+        }
+        break; }
     case DPLASMA_ZGEMM_NN_SUMMA:
     case DPLASMA_ZGEMM_NT_SUMMA:
     case DPLASMA_ZGEMM_TN_SUMMA:
@@ -622,16 +1052,38 @@ dplasma_zgemm_Destruct( parsec_taskpool_t *tp )
         parsec_warning("Invalid GEMM taskpool type during destruct!");
     }
 
-    dplasma_clean_adtt_all_loc(ddc_A, MAX_SHAPES);
-    dplasma_clean_adtt_all_loc(ddc_B, MAX_SHAPES);
-    dplasma_clean_adtt_all_loc(ddc_C, MAX_SHAPES);
+    if( NULL != ddc_A ) {
+        dplasma_clean_adtt_all_loc(ddc_A, MAX_SHAPES);
+    }
+    if( NULL != ddc_B ) {
+        dplasma_clean_adtt_all_loc(ddc_B, MAX_SHAPES);
+    }
+    if( NULL != ddc_C ) {
+        dplasma_clean_adtt_all_loc(ddc_C, MAX_SHAPES);
+    }
 
     parsec_taskpool_free(tp);
 
+    if( NULL != sparseA ) {
+        dplasma_zgemm_destroy_sparse_tile_matrix(sparseA);
+    }
+    if( NULL != sparseB ) {
+        dplasma_zgemm_destroy_sparse_tile_matrix(sparseB);
+    }
+    if( NULL != sparseC ) {
+        dplasma_zgemm_destroy_sparse_tile_matrix(sparseC);
+    }
+
     /* free the dplasma_data_collection_t, after the tp stops referring to them */
-    dplasma_unwrap_data_collection(ddc_A);
-    dplasma_unwrap_data_collection(ddc_B);
-    dplasma_unwrap_data_collection(ddc_C);
+    if( NULL != ddc_A ) {
+        dplasma_unwrap_data_collection(ddc_A);
+    }
+    if( NULL != ddc_B ) {
+        dplasma_unwrap_data_collection(ddc_B);
+    }
+    if( NULL != ddc_C ) {
+        dplasma_unwrap_data_collection(ddc_C);
+    }
 }
 
 /**

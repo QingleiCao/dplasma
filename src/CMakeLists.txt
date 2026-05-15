@@ -66,7 +66,7 @@ set(JDF
   #
   # BLAS Level 3
   #
-  zgemm_NN.jdf zgemm_TN.jdf zgemm_NT.jdf zgemm_TT.jdf
+  zgemm_NN.jdf zgemm_NN_sparse.jdf zgemm_TN.jdf zgemm_NT.jdf zgemm_TT.jdf
   zgemm_NN_summa.jdf zgemm_TN_summa.jdf zgemm_NT_summa.jdf zgemm_TT_summa.jdf
   zgemm_NN_gpu.jdf
   zhemm.jdf

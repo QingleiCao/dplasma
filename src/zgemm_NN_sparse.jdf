@@ -1,0 +1,192 @@
+extern "C" %{
+/*
+ * Copyright (c) 2010-2025 The University of Tennessee and The University
+ *                         of Tennessee Research Foundation. All rights
+ *                         reserved.
+ *
+ * @precisions normal z -> s d c
+ *
+ */
+#include "dplasma/config.h"
+#include "dplasmajdf.h"
+#include "parsec/data_dist/matrix/matrix.h"
+#include "parsec/data_dist/matrix/two_dim_rectangle_cyclic.h"
+#include <math.h>
+#include <stdint.h>
+
+#if defined(PRECISION_z) || defined(PRECISION_c)
+#define DPLASMA_CONJ(x) conj(x)
+#else
+#define DPLASMA_CONJ(x) (x)
+#endif
+
+typedef struct {
+    int nnz;
+    int nnz_cap;
+    int nrows;
+    int ncols;
+} dplasma_csr_tile_hdr_t;
+
+/* Assume the functions on type & type_remote will return parsec_arena_datatype_t */
+#define JDF2C_TYPE_ADT_NOT_INDEX
+
+/* Include the functions to obtain the parsec_arena_datatype_t */
+#include "dplasmajdf_lapack_dtt.h"
+//#define FULL_CONVERSION
+#ifdef FULL_CONVERSION
+#define ADTT_READ(dM, loc, shape, layout) ADTT_DC(dM, loc, shape, layout)
+#else
+#define ADTT_READ(dM, loc, shape, layout) ADTT_DC(dM, loc, shape, LAPACK)
+#endif
+
+#include "zgemm_NN_sparse.h"
+
+%}
+
+/*
+ * Globals
+ */
+
+/* Keep this first, as in all jdf in this directory, to
+ * enable switching between GEMM implementations.
+ */
+gemm_type [ type = int hidden=on default="DPLASMA_ZGEMM_NN_SPARSE" ]
+
+transA [ type = int ]
+transB [ type = int ]
+
+alpha  [type = dplasma_complex64_t]
+beta   [type = dplasma_complex64_t]
+
+ddescA     [type = "parsec_data_collection_t*"]
+descA      [type = "parsec_tiled_matrix_t*" hidden = on default = "(parsec_tiled_matrix_t*)ddescA" aligned=ddescA]
+
+ddescB     [type = "parsec_data_collection_t*"]
+descB      [type = "parsec_tiled_matrix_t*" hidden = on default = "(parsec_tiled_matrix_t*)ddescB" aligned=ddescB]
+
+ddescC     [type = "parsec_data_collection_t*"]
+descC      [type = "parsec_tiled_matrix_t*" hidden = on default = "(parsec_tiled_matrix_t*)ddescC" aligned=ddescC]
+denseC     [type = "parsec_tiled_matrix_t*"]
+
+/** We need to keep the set of handle-globals the same between
+ *  zgemm_*.jdf, to ensure that all handles can be destroyed
+ *  with a generic function. P and Q are unused here. */
+P      [type = "int" hidden=on default="-1"]
+Q      [type = "int" hidden=on default="-1"]
+
+/* Look ahead on both dimensions */
+lookP  [type = "int" hidden=on default="dplasma_aux_getGEMMLookahead(descC)"]
+lookQ  [type = "int" hidden=on default="dplasma_aux_getGEMMLookahead(descC)"]
+
+/**************************************************
+ *                       READ_A                   *
+ **************************************************/
+READ_A(m, k)  [profile = off]
+
+m = 0 .. descA->mt-1
+k = 0 .. descA->nt-1
+
+: descA(m, k)
+
+READ A <- ddescA(m, k)
+       -> A GEMM(m, 0 .. descC->nt-1, k) /* dep OUT: rely on datacopy dtt for sending */
+
+CTL ctla <- (k >= lookQ) ? ctla GEMM(m, 0 .. descC->nt-1, k-lookQ)
+
+BODY
+{
+    printlog("rank %u <- A(%d,%d)\n", descA->super.myrank, m, k);
+}
+END
+
+/**************************************************
+ *                       READ_B                   *
+ **************************************************/
+READ_B(k, n) [profile = off]
+
+k = 0 .. descB->mt-1
+n = 0 .. descB->nt-1
+
+: descB(k, n)
+
+READ B <- ddescB(k, n)
+       -> B GEMM(0 .. descC->mt-1, n, k) /* dep OUT: rely on datacopy dtt for sending */
+
+CTL ctlb <- (k >= lookP) ? ctlb GEMM(0 .. descC->mt-1, n, k-lookP)
+
+BODY
+{
+     printlog("rank %u <- B(%d,%d)\n", descB->super.myrank, k, n);
+}
+END
+
+/**************************************************
+ *                       GEMM                     *
+ **************************************************/
+GEMM(m, n, k) [ flops = inline_c%{ return FLOPS_ZGEMM(CLEAN_MB(descC, m), CLEAN_NB(descC, n), CLEAN_NB(descA, k)); %} ]
+
+// Execution space
+m = 0 .. descC->mt-1
+n = 0 .. descC->nt-1
+k = 0 .. descA->nt-1
+
+// Parallel partitioning
+: descC(m, n)
+
+// Parameters
+READ A <- A READ_A(m, k)
+READ B <- B READ_B(k, n)
+RW   C <- (k == 0)             ? ddescC(m, n)
+       <- (k != 0)             ? C GEMM( m, n, k-1 )
+       -> (k == (descA->nt-1)) ? ddescC(m, n)
+       -> (k != (descA->nt-1)) ? C GEMM( m, n, k+1 )  /* dep OUT: rely on datacopy dtt for sending */
+
+
+CTL ctla -> (k < (descA->nt-lookQ)) ? ctla READ_A(m, k+lookQ)
+CTL ctlb -> (k < (descA->nt-lookP)) ? ctlb READ_B(k+lookP, n)
+
+BODY
+{
+    int tempmm = m == descC->mt-1 ? descC->m - m * descC->mb : descC->mb;
+    int tempnn = n == descC->nt-1 ? descC->n - n * descC->nb : descC->nb;
+    /* CSR tile payload layout (per tile, PARSEC_MATRIX_TILE storage):
+     * [header][rowptr][colind][vals]
+     * where rowptr has nrows+1 entries and colind/vals are sized to tile capacity.
+     */
+    dplasma_csr_tile_hdr_t *ah = (dplasma_csr_tile_hdr_t*)A;
+    dplasma_csr_tile_hdr_t *bh = (dplasma_csr_tile_hdr_t*)B;
+    dplasma_csr_tile_hdr_t *ch = (dplasma_csr_tile_hdr_t*)C;
+    int *a_rowptr = (int*)((char*)A + sizeof(dplasma_csr_tile_hdr_t));
+    int *a_colind = a_rowptr + (ah->nrows + 1);
+    dplasma_complex64_t *a_vals = (dplasma_complex64_t*)(a_colind + ah->nnz_cap);
+    int *b_rowptr = (int*)((char*)B + sizeof(dplasma_csr_tile_hdr_t));
+    int *b_colind = b_rowptr + (bh->nrows + 1);
+    dplasma_complex64_t *b_vals = (dplasma_complex64_t*)(b_colind + bh->nnz_cap);
+    int *c_rowptr = (int*)((char*)C + sizeof(dplasma_csr_tile_hdr_t));
+    int *c_colind = c_rowptr + (ch->nrows + 1);
+    dplasma_complex64_t *c_vals = (dplasma_complex64_t*)(c_colind + ch->nnz_cap);
+
+    if( transA != dplasmaNoTrans || transB != dplasmaNoTrans ) {
+        return PARSEC_HOOK_RETURN_ERROR;
+    }
+
+    for(int i = 0; i < tempmm; i++) {
+        for(int ia = a_rowptr[i]; ia < a_rowptr[i + 1]; ia++) {
+            int p = a_colind[ia];
+            dplasma_complex64_t aval = a_vals[ia];
+            for(int ib = b_rowptr[p]; ib < b_rowptr[p + 1]; ib++) {
+                int j = b_colind[ib];
+                if( j >= tempnn ) {
+                    continue;
+                }
+                for(int ic = c_rowptr[i]; ic < c_rowptr[i + 1]; ic++) {
+                    if( c_colind[ic] == j ) {
+                        c_vals[ic] += alpha * aval * b_vals[ib];
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+END

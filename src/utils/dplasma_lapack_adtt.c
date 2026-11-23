@@ -337,16 +337,21 @@ static int32_t vpid_of_key(parsec_data_collection_t *desc, parsec_data_key_t key
     return ((parsec_data_collection_t*)ddc->dc_original)->vpid_of_key(((parsec_data_collection_t *)ddc->dc_original), key);
 }
 
+/* A NULL hook means the collection has no memory to register (as in PaRSEC). */
 static int register_memory(parsec_data_collection_t *desc, parsec_device_module_t *device)
 {
     dplasma_data_collection_t * ddc = (dplasma_data_collection_t *)desc;
-    return ((parsec_data_collection_t*)ddc->dc_original)->register_memory(((parsec_data_collection_t *)ddc->dc_original), device);
+    parsec_data_collection_t *original = (parsec_data_collection_t *)ddc->dc_original;
+    if( NULL == original->register_memory ) return PARSEC_SUCCESS;
+    return original->register_memory(original, device);
 }
 
 static int unregister_memory(parsec_data_collection_t *desc, parsec_device_module_t *device)
 {
     dplasma_data_collection_t * ddc = (dplasma_data_collection_t *)desc;
-    return ((parsec_data_collection_t*)ddc->dc_original)->unregister_memory(((parsec_data_collection_t *)ddc->dc_original), device);
+    parsec_data_collection_t *original = (parsec_data_collection_t *)ddc->dc_original;
+    if( NULL == original->unregister_memory ) return PARSEC_SUCCESS;
+    return original->unregister_memory(original, device);
 }
 
 static int key_to_string(parsec_data_collection_t * desc, parsec_data_key_t datakey, char * buffer, uint32_t buffer_size)

@@ -38,7 +38,7 @@ static void *zpoinv_create_cuda_workspace(void *obj, void *user)
     assert(CUSOLVER_STATUS_SUCCESS == status);
     (void)status;
 
-    status = cusolverDnDpotrf_bufferSize(cusolverDnHandle, dplasma_cublas_fill(uplo), nb, NULL, mb, &workspace_size);
+    status = cusolverDnZpotrf_bufferSize(cusolverDnHandle, dplasma_cublas_fill(uplo), nb, NULL, mb, &workspace_size);
     assert(CUSOLVER_STATUS_SUCCESS == status);
 
     cusolverDnDestroy(cusolverDnHandle);

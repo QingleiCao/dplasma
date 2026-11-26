@@ -211,6 +211,12 @@ foreach(prec ${DPLASMA_PRECISIONS} )
     # gemm_dtd passes on one device and fails on two under mpi. Two devices
     # without mpi separates the second device from the distribution.
     dplasma_add_test(gemm_dtd           gemm_dtd 2gpu_cuda_shm -M 1300 -N 970 -K 650 -t 320 ${OPTIONS} -g 2 -- --mca device_cuda_memory_number_of_blocks 4096)
+    # QR on a device. Its trailing update (ztsmqr) is the only device body that
+    # takes workspaces from the stream, two per task, and only a stream that
+    # runs more than one of them shows whether both are given back. M and N are
+    # not tile multiples, so the partial tiles take the device path too.
+    dplasma_add_test(geqrf              geqrf   1gpu_cuda_shm -M 1940 -N 1300 -K 97 -t 320 ${OPTIONS} -g 1 -- --mca device_cuda_memory_number_of_blocks 4096)
+    dplasma_add_test(geqrf              geqrf   2gpu_cuda_shm -M 1940 -N 1300 -K 97 -t 320 ${OPTIONS} -g 2 -- --mca device_cuda_memory_number_of_blocks 4096)
   endif (DPLASMA_HAVE_CUDA)
   if (DPLASMA_HAVE_HIP)
     dplasma_add_gpu_probe(hip)
@@ -232,6 +238,8 @@ foreach(prec ${DPLASMA_PRECISIONS} )
     dplasma_add_test(potrf_dtd          potrf_dtd 1gpu_hip_shm -N 3200 -t 320 ${OPTIONS} -g 1 -- --mca device_hip_memory_number_of_blocks 4096)
     dplasma_add_test(gemm_dtd           gemm_dtd 1gpu_hip_shm -M 1300 -N 970 -K 650 -t 320 ${OPTIONS} -g 1 -- --mca device_hip_memory_number_of_blocks 4096)
     dplasma_add_test(gemm_dtd           gemm_dtd 2gpu_hip_shm -M 1300 -N 970 -K 650 -t 320 ${OPTIONS} -g 2 -- --mca device_hip_memory_number_of_blocks 4096)
+    dplasma_add_test(geqrf              geqrf   1gpu_hip_shm -M 1940 -N 1300 -K 97 -t 320 ${OPTIONS} -g 1 -- --mca device_hip_memory_number_of_blocks 4096)
+    dplasma_add_test(geqrf              geqrf   2gpu_hip_shm -M 1940 -N 1300 -K 97 -t 320 ${OPTIONS} -g 2 -- --mca device_hip_memory_number_of_blocks 4096)
   endif (DPLASMA_HAVE_HIP)
 
 

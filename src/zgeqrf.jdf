@@ -486,6 +486,7 @@ BODY [type=CUDA device=%{ return n; %}
       stage_out=dplasma_cuda_lapack_stage_out]
 {
     dplasma_complex64_t *WORK, *WORKC;
+    size_t wsize;
     int tempmm = ((m)==(descA->mt-1)) ? (descA->m-(m*descA->mb)) : descA->mb;
     int tempnn = ((n)==(descA->nt-1)) ? (descA->n-(n*descA->nb)) : descA->nb;
     int ldak_A1 = descA->mb;
@@ -498,8 +499,12 @@ BODY [type=CUDA device=%{ return n; %}
     handles = parsec_info_get(&gpu_stream->infos, cuda_handles_infokey);
     assert(NULL != handles);
 
-    WORK  = parsec_device_pop_workspace(gpu_device, gpu_stream, descA->nb * ib * sizeof(dplasma_complex64_t));
-    WORKC = parsec_device_pop_workspace(gpu_device, gpu_stream, descA->mb * ib * sizeof(dplasma_complex64_t));
+    /* Every buffer of the stream's workspace stack gets the size of the
+     * first request made on that stream, so ask for the larger of the two
+     * needs each time: WORK is ib x nb, WORKC is mb x ib. */
+    wsize = (size_t)dplasma_imax(descA->mb, descA->nb) * ib * sizeof(dplasma_complex64_t);
+    WORK  = parsec_device_pop_workspace(gpu_device, gpu_stream, wsize);
+    WORKC = parsec_device_pop_workspace(gpu_device, gpu_stream, wsize);
 
     rc = dplasma_cuda_ztsmqr( dplasmaLeft, dplasmaConjTrans,
                               descA->mb, tempnn, tempmm, tempnn, descA->nb, ib,
@@ -531,6 +536,7 @@ BODY [type=HIP device=%{ return n; %}
       stage_out=dplasma_hip_lapack_stage_out]
 {
     dplasma_complex64_t *WORK, *WORKC;
+    size_t wsize;
     int tempmm = ((m)==(descA->mt-1)) ? (descA->m-(m*descA->mb)) : descA->mb;
     int tempnn = ((n)==(descA->nt-1)) ? (descA->n-(n*descA->nb)) : descA->nb;
     int ldak_A1 = descA->mb;
@@ -543,8 +549,10 @@ BODY [type=HIP device=%{ return n; %}
     handles = parsec_info_get(&gpu_stream->infos, hip_handles_infokey);
     assert(NULL != handles);
 
-    WORK  = parsec_device_pop_workspace(gpu_device, gpu_stream, descA->nb * ib * sizeof(dplasma_complex64_t));
-    WORKC = parsec_device_pop_workspace(gpu_device, gpu_stream, descA->mb * ib * sizeof(dplasma_complex64_t));
+    /* One size for both, see the CUDA body. */
+    wsize = (size_t)dplasma_imax(descA->mb, descA->nb) * ib * sizeof(dplasma_complex64_t);
+    WORK  = parsec_device_pop_workspace(gpu_device, gpu_stream, wsize);
+    WORKC = parsec_device_pop_workspace(gpu_device, gpu_stream, wsize);
 
     rc = dplasma_hip_ztsmqr( dplasmaLeft, dplasmaConjTrans,
                              descA->mb, tempnn, tempmm, tempnn, descA->nb, ib,
